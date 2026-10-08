@@ -1,9 +1,6 @@
 # PostPilot
 
-**PostPilot** is an AI-powered social media content management platform that helps users create, refine, manage, and schedule social media posts from a single dashboard.
-
-It combines AI-assisted content generation with account management, media generation, scheduling, and automated publishing. The application is deployed as a separate React frontend and Node.js backend.
-
+**PostPilot is a full-stack AI-powered social media automation platform. I built the frontend using React, TypeScript, Vite, and Tailwind CSS, and the backend using Node.js, Express, TypeScript, and MongoDB. Users can authenticate, generate post content using Groq with Gemini as a fallback, generate images using Stability AI, store media through Cloudinary, connect social accounts through Zernio, and schedule posts for automated publishing. The backend uses a node-cron scheduler that checks every minute for posts that are due and sends them to the publishing provider. I deployed the frontend on Vercel and the backend on Render, with MongoDB Atlas as the production database.**
 ## Live Demo
 
 **Frontend:** https://post-pilot-six-beta.vercel.app/
@@ -610,32 +607,6 @@ This requires the backend process to remain alive, which is why the production b
 - OAuth integration is handled by the backend rather than exposing provider credentials to the client.
 
 For a larger production deployment, the next security improvements would include stricter CORS configuration, refresh-token rotation, rate limiting, stronger input validation, and more granular authorization.
-
----
-
-## Interview-Level System Explanation
-
-A concise way to explain PostPilot in an interview:
-
-> **PostPilot is a full-stack AI-powered social media automation platform. I built the frontend using React, TypeScript, Vite, and Tailwind CSS, and the backend using Node.js, Express, TypeScript, and MongoDB. Users can authenticate, generate post content using Groq with Gemini as a fallback, generate images using Stability AI, store media through Cloudinary, connect social accounts through Zernio, and schedule posts for automated publishing. The backend uses a node-cron scheduler that checks every minute for posts that are due and sends them to the publishing provider. I deployed the frontend on Vercel and the backend on Render, with MongoDB Atlas as the production database.**
-
-### If the interviewer asks: "Why did you use this architecture?"
-
-> I separated the frontend and backend so that the browser handles presentation while the backend handles authentication, database operations, AI integrations, OAuth, scheduling, and third-party API calls. This also keeps API secrets on the server and allows the frontend and backend to be deployed independently.
-
-### If asked: "How does scheduling work?"
-
-> When a user schedules a post, the post and its scheduled time are stored in MongoDB. A node-cron job runs every minute on the backend, finds posts whose scheduled time has arrived, publishes them through Zernio, and updates their status. Because the scheduler runs inside the backend process, the backend needs to stay continuously available.
-
-### If asked: "Why not call AI APIs from React?"
-
-> API keys must not be exposed in client-side JavaScript. The frontend sends the user's request to my Express backend, and the backend securely communicates with the AI provider.
-
-### If asked: "What happens if Groq fails?"
-
-> The backend has a fallback path that can use Gemini for text generation, so a temporary failure from the primary provider does not necessarily break the content-generation workflow.
-
----
 
 ## Future Improvements
 

@@ -7,6 +7,46 @@ import { Generation } from "../models/Generation.js";
 import { Post } from "../models/Post.js";
 
 
+const sleep = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
+
+const generateGeminiContent = async (ai: GoogleGenAI, prompt: string, tone: string) => {
+    const models = ["gemini-3.5-flash-lite", "gemini-3.8-flash"];
+    let lastError: any;
+
+    for (const model of models) {
+        for (let attempt = 1; attempt <= 3; attempt++) {
+            try {
+                return await ai.models.generateContent({
+                    model,
+                    contents: `Generate a social media post based on this prompt: "${prompt}". 
+                    Tone: ${tone}. 
+                    Include relevant hashtags.
+                    Format the response as JSON with "content" and "imagePrompt" fields. 
+                    The "imagePrompt" should be a highly descriptive prompt for an image generator that complements the post.`,
+                });
+            } catch (error: any) {
+                lastError = error;
+
+                const status = error?.status ?? error?.code ?? error?.response?.status;
+                const retryable = status === 429 || status === 500 || status === 502 || status === 503 || status === 504;
+
+                if (!retryable || attempt === 3) {
+                    break;
+                }
+
+                const delay = 1000 * attempt;
+                console.warn(`Gemini model ${model} returned ${status}. Retrying in ${delay}ms (attempt ${attempt}/3)...`);
+                await sleep(delay);
+            }
+        }
+
+        console.warn(`Gemini model ${model} was unavailable. Trying the next model...`);
+    }
+
+    throw lastError || new Error("No Gemini model was available.");
+};
+
+
 // Generate post
 // POST /api/posts/generate
 export const generatePost = async (req: AuthRequest, res: Response): Promise<void> => {
@@ -22,14 +62,9 @@ export const generatePost = async (req: AuthRequest, res: Response): Promise<voi
         const ai = new GoogleGenAI({apiKey});
 
         // Generate Text
-        const textResponse = await ai.models.generateContent({
-            model: "gemini-2.5-flash",
-            contents: `Generate a social media post based on this prompt: "${prompt}". 
-            Tone: ${tone}. 
-            Include relevant hashtags.
-            Format the response as JSON with "content" and "imagePrompt" fields. 
-            The "imagePrompt" should be a highly descriptive prompt for an image generator that complements the post.`,
-        });
+        // Use the free, lightweight model first and fall back to Gemini 3.8 Flash
+        // if the primary model is temporarily unavailable.
+        const textResponse = await generateGeminiContent(ai, prompt, tone);
 
         let content = "";
         let imagePrompt = prompt;

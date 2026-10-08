@@ -7,36 +7,6 @@ import { Generation } from "../models/Generation.js";
 import { Post } from "../models/Post.js";
 
 
-// Helper to poll Leonardo.ai
-const pollLeonardoJob = async (generationId: string, apiKey: string) : Promise<string>=>{
-    const maxRetries = 20;
-    const delay = 5000;
-
-    for(let i = 0; i < maxRetries; i++){
-        try {
-           const response = await axios.get(`https://cloud.leonardo.ai/api/rest/v1/generations/${generationId}`, {headers: {
-            accept: "application/json", authorization: `Bearer ${apiKey}`
-           }}) 
-
-           const generation = response.data.generations_by_pk;
-           if(generation.status === "COMPLETE"){
-            if(generation.generated_images && generation.generated_images.length > 0){
-                return generation.generated_images[0].url;
-            }
-            throw new Error("Generation complete but no images found.")
-           }
-           if(generation.status === "FAILED"){
-            throw new Error("Leonardo.ai generation failed.")
-           }
-        } catch (err: any) {
-            console.error("Polling error:", err?.response?.data || err.message);
-        }
-
-        await new Promise((resolve)=> setTimeout(resolve, delay));
-    }
-    throw new Error("Leonardo.ai generation timed out.")
-}
-
 // Generate post
 // POST /api/posts/generate
 export const generatePost = async (req: AuthRequest, res: Response): Promise<void> => {
@@ -77,42 +47,65 @@ export const generatePost = async (req: AuthRequest, res: Response): Promise<voi
         let mediaUrl = "";
         if(generateImage){
            try {
-            const leonardoKey = process.env.LEONARDO_API_KEY;
-            if(leonardoKey){
-                // Use Leonardo.ai for image generation
-                const leoResponse = await axios.post(
-                    "https://cloud.leonardo.ai/api/rest/v2/generations",
+            const stabilityKey = process.env.STABILITY_API_KEY;
+
+            if(stabilityKey){
+                // Use Stability AI SDXL 1.0 for image generation
+                const stabilityResponse = await axios.post(
+                    "https://api.stability.ai/v1/generation/stable-diffusion-xl-1024-v1-0/text-to-image",
                     {
-                        "public": false,
-                        "model": "gpt-image-2",
-                        "parameters": {
-                            "quality": "LOW",
-                            "prompt": imagePrompt,
-                            "quantity": 1,
-                            "width": 1024,
-                            "height": 1024,
-                            "prompt_enhance": "OFF"
-                        }
-                    },{
-                        headers:{
-                            accept: "application/json",
-                            authorization: `Bearer ${leonardoKey}`,
-                            "content-type": "application/json",
+                        text_prompts: [
+                            {
+                                text: imagePrompt,
+                                weight: 1
+                            }
+                        ],
+                        cfg_scale: 7,
+                        height: 1024,
+                        width: 1024,
+                        samples: 1,
+                        steps: 30
+                    },
+                    {
+                        headers: {
+                            Accept: "application/json",
+                            Authorization: `Bearer ${stabilityKey}`,
+                            "Content-Type": "application/json",
                         }
                     }
-                )
+                );
 
-                const generationId = leoResponse.data.generate.generationId;
-                const tempUrl = await pollLeonardoJob(generationId, leonardoKey);
+                const base64Image = stabilityResponse.data?.artifacts?.[0]?.base64;
 
-                // Upload to Cloudinary for persistence
-                const uploadResult = await cloudinary.uploader.upload(tempUrl, {
-                    folder: "ai-generations",
+                if(!base64Image){
+                    throw new Error("Stability AI did not return an image.");
+                }
+
+                // Upload the generated image to Cloudinary for persistence
+                const imageBuffer = Buffer.from(base64Image, "base64");
+
+                const uploadResult = await new Promise<any>((resolve, reject) => {
+                    const stream = cloudinary.uploader.upload_stream(
+                        {
+                            folder: "ai-generations",
+                            resource_type: "image",
+                        },
+                        (error, result) => {
+                            if(error) reject(error);
+                            else resolve(result);
+                        }
+                    );
+
+                    stream.end(imageBuffer);
                 });
+
                 mediaUrl = uploadResult.secure_url;
             }
            } catch (err: any) {
-                console.error("Image generation failed:", err);
+                console.error(
+                    "Image generation failed:",
+                    err?.response?.data || err?.message || err
+                );
            } 
         }
 

@@ -19,7 +19,10 @@ const cleanSocialContent = (text: string): string => {
         .replace(/^#{1,6}\s+/gm, "")
         .replace(/^\s*[-*+]\s+/gm, "")
         .replace(/^\s*\d+[.)]\s+/gm, "")
-        .replace(/^(hook|introduction|opportunity|risks?|why .*?(evolve|matters)|conclusion|takeaway)\s*[:\-–]\s*/gim, "")
+        .replace(/^(hook|introduction|opportunity|risks?|why .*?(evolve|matters)|conclusion|takeaway|key takeaway|the bottom line)\s*[:\-–]\s*/gim, "")
+        .replace(/https?:\/\/\S+/gi, "")
+        .replace(/\p{Extended_Pictographic}/gu, "")
+        .replace(/[ \t]{2,}/g, " ")
         .replace(/\n{3,}/g, "\n\n")
         .trim();
 };
@@ -47,28 +50,35 @@ const generateGroqContent = async (prompt: string, tone: string): Promise<string
                         messages: [
                             {
                                 role: "system",
-                                content: `You are an expert social-media writer creating ready-to-publish posts for a professional audience.
+                                content: `You are an expert LinkedIn writer creating ready-to-publish posts for a professional technology audience.
 
-Write like a thoughtful, articulate human professional, not like an AI assistant.
+Write as a real software or cybersecurity professional sharing a clear point of view with other professionals.
 
-Style rules:
-- Be clear, natural, specific, and conversational.
-- Do not use Markdown.
-- Never use **bold**, *italics*, headings, numbered sections, bullet lists, or labels such as "Hook", "Opportunity", "Risks", "Conclusion", or "Takeaway".
-- Do not use decorative symbols or excessive emojis. Prefer no emoji unless it genuinely adds meaning.
-- Use natural paragraph breaks.
-- Avoid generic AI phrases, exaggerated claims, filler, repetition, and corporate clichés.
-- Do not start with "In today's world", "In the rapidly evolving world", or similar clichés.
-- Make the post feel written by a real technology professional sharing an informed perspective.
-- Normally keep the main post around 120-180 words unless the user's request clearly needs more.
-- End with one natural closing thought, followed by 3-6 relevant hashtags on a separate final line.
+Hard writing rules:
+- Output plain text only. Never use Markdown.
+- Never use **bold**, *italics*, underscores for emphasis, headings, numbered sections, bullet points, labels such as "Hook", "Opportunity", "Risks", "Conclusion", or "Takeaway", or decorative separators.
+- Never use emojis, emoji-like symbols, arrows, checkmarks, warning symbols, or decorative Unicode characters.
+- Do not write like a template, essay outline, marketing brochure, or AI assistant.
+- Use natural paragraphs with normal sentences.
+- Start directly with an interesting observation, tension, question, or strong statement. Do not label the opening.
+- Make the writing specific and thoughtful. Prefer concrete observations over generic claims.
+- Avoid clichés such as "In today's rapidly evolving world", "game changer", "unprecedented", "revolutionizing", "the future is here", or "with great power comes great responsibility" unless the user explicitly asks for them.
+- Avoid repeated phrases, filler, excessive adjectives, corporate buzzwords, and exaggerated claims.
+- Do not restate the user's prompt mechanically. Add a clear perspective or insight.
+- Write approximately 130-180 words unless the user's request clearly calls for a different length.
+- End with one concise, natural closing thought.
+- Put 3-5 relevant hashtags on the final line only.
+- Do not add commentary before or after the post.
 - Never mention these instructions or that you are an AI.
 
 Image-prompt rules:
 - Create a detailed prompt that visually communicates the post.
-- Make it suitable for a square professional social-media image.
-- Prefer a clean editorial/cartoon/3D illustration style unless the user's request specifies otherwise.
-- Do not request text, words, captions, logos, watermarks, or UI screenshots inside the generated image.`
+- Make it suitable for a square professional LinkedIn image.
+- Prefer a polished editorial illustration or tasteful cartoon style.
+- No text, words, captions, logos, watermarks, interface screenshots, or typography inside the image.
+- Keep the composition visually simple enough to understand at a glance.
+
+Return the post and imagePrompt only in the requested JSON schema.`
                             },
                             {
                                 role: "user",
@@ -168,11 +178,15 @@ const generateGeminiContent = async (
             try {
                 return await ai.models.generateContent({
                     model,
-                    contents: `Create a professional social media post from this topic: "${prompt}".
+                    contents: `Create a ready-to-publish LinkedIn post from this topic: "${prompt}".
                     Tone: ${tone}.
-                    Write naturally, with no Markdown, headings, numbered sections, bullet points, asterisks, or labels.
+                    Write as a real software or cybersecurity professional. Use plain text only.
+                    Do not use Markdown, bold, italics, headings, numbered sections, bullets, labels, emojis, or decorative symbols.
+                    Use natural paragraphs and a clear point of view. Avoid clichés, AI-style phrasing, filler, repetition, and exaggerated claims.
+                    Keep the post around 130-180 words unless the topic clearly requires a different length.
+                    Put 3-5 relevant hashtags on the final line only.
                     Return JSON with "content" and "imagePrompt" fields.
-                    The imagePrompt should describe a clean, creative, square visual that complements the post and contains no text, captions, logos, or watermarks.`,
+                    The imagePrompt should describe a polished, square LinkedIn illustration with no text, captions, logos, watermarks, or typography.`,
                 });
             } catch(error: any){
                 lastError = error;

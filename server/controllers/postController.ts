@@ -9,6 +9,92 @@ import { Post } from "../models/Post.js";
 
 const sleep = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
 
+const generateGroqContent = async (prompt: string, tone: string): Promise<string> => {
+    const groqKey = process.env.GROQ_API_KEY;
+
+    if(!groqKey){
+        throw new Error("GROQ_API_KEY is not configured.");
+    }
+
+    let lastError: any;
+
+    for(let attempt = 1; attempt <= 3; attempt++){
+        try {
+            const response = await axios.post(
+                "https://api.groq.com/openai/v1/chat/completions",
+                {
+                    model: "openai/gpt-oss-20b",
+                    messages: [
+                        {
+                            role: "user",
+                            content: `Generate a social media post based on this prompt: "${prompt}".
+Tone: ${tone}.
+Include relevant hashtags.
+
+Also generate a detailed imagePrompt that visually complements the post and can be sent to an image generation model.
+
+Return exactly this JSON structure:
+{
+  "content": "the social media post",
+  "imagePrompt": "the detailed image generation prompt"
+}`
+                        }
+                    ],
+                    response_format: {
+                        type: "json_schema",
+                        json_schema: {
+                            name: "social_media_generation",
+                            strict: true,
+                            schema: {
+                                type: "object",
+                                properties: {
+                                    content: { type: "string" },
+                                    imagePrompt: { type: "string" }
+                                },
+                                required: ["content", "imagePrompt"],
+                                additionalProperties: false
+                            }
+                        }
+                    },
+                    reasoning_effort: "low",
+                    temperature: 0.7,
+                    max_completion_tokens: 1000
+                },
+                {
+                    headers: {
+                        Authorization: `Bearer ${groqKey}`,
+                        "Content-Type": "application/json"
+                    },
+                    timeout: 30000
+                }
+            );
+
+            const result = response.data?.choices?.[0]?.message?.content;
+
+            if(!result){
+                throw new Error("Groq returned an empty response.");
+            }
+
+            return result;
+        } catch (error: any) {
+            lastError = error;
+
+            const status = error?.response?.status ?? error?.status ?? error?.code;
+            const retryable = status === 429 || status === 500 || status === 502 || status === 503 || status === 504 || error?.code === "ECONNABORTED";
+
+            if(!retryable || attempt === 3){
+                break;
+            }
+
+            const delay = 1000 * attempt;
+            console.warn(`Groq returned ${status}. Retrying in ${delay}ms (attempt ${attempt}/3)...`);
+            await sleep(delay);
+        }
+    }
+
+    throw lastError || new Error("Groq text generation failed.");
+};
+
 const generateGeminiContent = async (ai: GoogleGenAI, prompt: string, tone: string) => {
     const models = ["gemini-3.5-flash-lite", "gemini-3.8-flash"];
     let lastError: any;
@@ -53,30 +139,55 @@ export const generatePost = async (req: AuthRequest, res: Response): Promise<voi
     try {
         const { prompt, tone, generateImage } = req.body;
 
-        const apiKey = process.env.GEMINI_API_KEY;
-        if(!apiKey){
-            res.status(400).json({message: "Gemini API Key is missing. Please add it to your server/.env file." });
+        const geminiApiKey = process.env.GEMINI_API_KEY;
+        const groqApiKey = process.env.GROQ_API_KEY;
+
+        if(!groqApiKey && !geminiApiKey){
+            res.status(400).json({
+                message: "No text-generation API key is configured. Please add GROQ_API_KEY or GEMINI_API_KEY to server/.env."
+            });
             return;
         }
 
-        const ai = new GoogleGenAI({apiKey});
+        const ai = geminiApiKey ? new GoogleGenAI({apiKey: geminiApiKey}) : null;
 
         // Generate Text
-        // Use the free, lightweight model first and fall back to Gemini 3.8 Flash
-        // if the primary model is temporarily unavailable.
-        const textResponse = await generateGeminiContent(ai, prompt, tone);
+        // Groq is the primary text-generation provider. Gemini is used as a fallback.
+        let rawText = "";
+
+        try {
+            if(groqApiKey){
+                rawText = await generateGroqContent(prompt, tone);
+            } else {
+                throw new Error("GROQ_API_KEY is not configured.");
+            }
+        } catch (groqError: any) {
+            console.warn(
+                "Groq text generation failed. Falling back to Gemini:",
+                groqError?.response?.data || groqError?.message || groqError
+            );
+
+            if(!ai){
+                throw groqError;
+            }
+
+            const textResponse = await generateGeminiContent(ai, prompt, tone);
+            rawText = textResponse.text || "";
+        }
 
         let content = "";
         let imagePrompt = prompt;
 
         try {
-            const rawText = textResponse.text || "";
             const jsonMatch = rawText.match(/\{[\s\S]*\}/);
-            const data = jsonMatch ? JSON.parse(jsonMatch[0]) : {content: rawText, imagePrompt: prompt};
-            content = data.content;
-            imagePrompt = data.imagePrompt;
+            const data = jsonMatch
+                ? JSON.parse(jsonMatch[0])
+                : {content: rawText, imagePrompt: prompt};
+
+            content = data.content || rawText;
+            imagePrompt = data.imagePrompt || prompt;
         } catch (e) {
-            content = textResponse.text || ""
+            content = rawText;
         }
 
         let mediaUrl = "";
